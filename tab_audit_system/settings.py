@@ -25,7 +25,7 @@ FRONTEND_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
 SECRET_KEY = 'django-insecure-)&u$y3n(hxu&)818g$v^isvydv1uj^%g89i105^k%za!kabpk-'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = ['tablog.onrender.com', 'localhost', '127.0.0.1']
 SECURE_SSL_REDIRECT = False 
 SESSION_COOKIE_SECURE = True
@@ -168,10 +168,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://172.31.0.203:3000",
+    "https://tablog.onrender.com", # Add your Render frontend URL here
 ]
 
 STORAGES = {
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage", # Less strict than Manifest
     },
 }
