@@ -164,6 +164,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://172.31.0.203:3000",
     "https://tablog.onrender.com", # Add your Render frontend URL here
+    "https://your-project-name.vercel.app",
 ]
 
 STORAGES = {
