@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-)&u$y3n(hxu&)818g$v^isvydv1uj^%g89i105^k%za!kabpk-
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-ALLOWED_HOSTS = ['*'] # Railway will provide the specific domain
+ALLOWED_HOSTS = ['tablog.onrender.com', 'localhost', '127.0.0.1']
 SECURE_SSL_REDIRECT = False 
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
