@@ -1,14 +1,16 @@
 # tab_audit_system/urls.py
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path, include # Consolidated imports
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.views.generic import TemplateView
-from django.urls import path, re_path, include
-from django.conf import settings # ADD THIS IMPORT
-from django.conf.urls.static import static # For static file serving
-# IMPORT FROM YOUR CORE VIEWS, NOT THE LIBRARY
+from django.conf import settings 
+from django.conf.urls.static import static 
 
-from core.views import MyTokenObtainPairView, TabCheckInView, UserActivityHistoryView, UserPossessionView, AdminDashboardView, add_tab_stock, export_usage_csv # Add this import
+# Import from core.views
+from core.views import (
+    MyTokenObtainPairView, TabCheckInView, UserActivityHistoryView, 
+    UserPossessionView, AdminDashboardView, add_tab_stock, export_usage_csv
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
