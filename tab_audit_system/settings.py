@@ -16,7 +16,7 @@ import dj_database_url
 import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+FRONTEND_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -64,7 +64,7 @@ ROOT_URLCONF = 'tab_audit_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [FRONTEND_DIR], # Add FRONTEND_DIR here
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
