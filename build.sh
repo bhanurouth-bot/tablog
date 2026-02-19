@@ -10,8 +10,17 @@ python manage.py migrate
 python manage.py collectstatic --no-input
 
 # 3. Create Admin & Seed Data (Optional but recommended)
-python manage.py shell <<EOF
-from core.models import User
-if not User.objects.filter(email='admin@example.com').exists():
-    User.objects.create_superuser(email='admin@example.com', password='1234', employee_id='03968', name='Admin')
-EOF
+# python manage.py shell <<EOF
+# from core.models import User
+# if not User.objects.filter(email='admin@example.com').exists():
+#     User.objects.create_superuser(
+#         username='aaloke', 
+#         email='admin@example.com', 
+#         password='1234', 
+#         employee_id='03968', 
+#         name='Aaloke'
+#     )
+#     print("Superuser created successfully")
+# else:
+#     print("Superuser already exists")
+# EOF
