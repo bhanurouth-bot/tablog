@@ -1,13 +1,22 @@
 # core/serializers.py
 from rest_framework import serializers
-from .models import Tab, UsageLog
+from .models import TabType, TabletDevice, AssignmentLog
 from .models import User
 
-class TabSerializer(serializers.ModelSerializer):
+class TabTypeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Tab
-        # Fields must match your updated Tab model
-        fields = ['id', 'name', 'daily_limit_per_user', 'stock_remaining']
+        model = TabType
+        fields = '__all__'
+
+class TabletDeviceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TabletDevice
+        fields = '__all__'
+
+class AssignmentLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssignmentLog
+        fields = '__all__'
 
 class CheckInSerializer(serializers.Serializer):
     tab_id = serializers.UUIDField()
@@ -23,3 +32,8 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         # Make sure 'role' is in this list!
         fields = ('id', 'employee_id', 'username', 'role', 'status')
+
+class ReturnVerificationSerializer(serializers.Serializer):
+    device_id = serializers.UUIDField()
+    otp_code = serializers.CharField(max_length=6)
+    condition = serializers.CharField(max_length=100, required=False)

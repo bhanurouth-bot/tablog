@@ -1,26 +1,68 @@
+from django.shortcuts import get_object_or_404   # <--- MUST HAVE THIS
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Sum, Count, Q
+from django.http import HttpResponse
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-from .models import AdminAuditLog, Tab, UsageLog
-from drf_spectacular.utils import extend_schema # Add this import
-from .serializers import CheckInSerializer, TabSerializer
-import csv
-from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
-from .models import UsageLog
-from django.db.models import Sum, Count
-from django.utils import timezone
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
-from .models import UsageLog
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from drf_spectacular.utils import extend_schema
 
+# Make sure User and ReturnVerification are in this list!
+from .models import AdminAuditLog, TabType, TabletDevice, AssignmentLog, User, ReturnVerification 
+from .serializers import CheckInSerializer, TabTypeSerializer
+import csv
+import random
 from core import models
+
+class AssignTabletView(APIView):
+    """Handles a user self-assigning a physical tablet."""
+    permission_classes = [permissions.IsAuthenticated] # ANY logged-in user can do this
+
+    def post(self, request):
+        device_id = request.data.get('device_id')
+        user = request.user # Automatically use the logged-in user
+
+        if not device_id:
+            return Response({"error": "device_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            device = TabletDevice.objects.get(serial_number=device_id)
+        except TabletDevice.DoesNotExist:
+            return Response({"error": f"Tablet '{device_id}' does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+        if device.status != 'available':
+            return Response({"error": f"Device is currently {device.status}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check Daily Limit
+        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        usage_today = AssignmentLog.objects.filter(
+            user=user, device__tab_type=device.tab_type, issued_at__gte=today_start
+        ).count()
+
+        if usage_today >= device.tab_type.daily_limit_per_user:
+            return Response({"error": f"You reached your daily limit for this tab type."}, status=status.HTTP_400_BAD_REQUEST)
+
+        device.status = 'assigned'
+        device.assigned_to = user
+        device.assigned_at = timezone.now()
+        device.save()
+
+        AssignmentLog.objects.create(
+            user=user, device=device, status='active',
+            ip_address=request.META.get('REMOTE_ADDR', '0.0.0.0'),
+            device_info=request.META.get('HTTP_USER_AGENT', 'Unknown')
+        )
+
+        return Response({"message": f"Device {device.serial_number} assigned to you successfully!"}, status=status.HTTP_201_CREATED)
+
+
 
 class TabCheckInView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -28,8 +70,8 @@ class TabCheckInView(APIView):
     def get(self, request):
         try:
             # Explicitly fetch all tabs to ensure the model is accessible
-            available_tabs = Tab.objects.all()
-            serializer = TabSerializer(available_tabs, many=True)
+            available_tabs = TabletDevice.objects.all()
+            serializer = TabTypeSerializer(tab_instance)
             return Response(serializer.data)
         except Exception as e:
             # This will help you see the EXACT error in your console
@@ -50,7 +92,7 @@ class TabCheckInView(APIView):
         try:
             with transaction.atomic():
                 # Lock the row for update to prevent race conditions
-                tab = Tab.objects.select_for_update().get(id=tab_id)
+                tab = TabletDevice.objects.select_for_update().get(id=tab_id)
                 
                 if action == 'log':
                     # 1. Check Global Stock
@@ -59,7 +101,7 @@ class TabCheckInView(APIView):
                     
                     # 2. Daily Limit check
                     today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                    usage_today = UsageLog.objects.filter(
+                    usage_today = AssignmentLog.objects.filter(
                         user=user, 
                         tab=tab, 
                         timestamp__gte=today_start, 
@@ -74,7 +116,7 @@ class TabCheckInView(APIView):
                 
                 elif action == 'return':
                     # 1. Possession Check: Can't return what you don't have
-                    user_balance = UsageLog.objects.filter(
+                    user_balance = AssignmentLog.objects.filter(
                         user=user, 
                         tab=tab
                     ).aggregate(Sum('quantity'))['quantity__sum'] or 0
@@ -89,7 +131,7 @@ class TabCheckInView(APIView):
 
                 tab.save()
 
-                UsageLog.objects.create(
+                AssignmentLog.objects.create(
                     user=user,
                     tab=tab,
                     quantity=log_qty,
@@ -109,52 +151,83 @@ class TabCheckInView(APIView):
             return Response({"error": str(e)}, status=500)
 
 class UserPossessionView(APIView):
+    """Returns the physical devices currently assigned to the user."""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        """Calculates the net balance of tabs currently held by the user."""
         try:
-            user = request.user
-            # We group by tab and sum quantities: Log(+1) + Return(-1)
-            possessions = UsageLog.objects.filter(user=user).values(
-                'tab__id', 'tab__name'
-            ).annotate(
-                current_balance=Sum('quantity')
-            ).filter(current_balance__gt=0) # Only show items where they hold 1 or more
+            # Query the new AssignmentLog model for active assignments
+            active_assignments = AssignmentLog.objects.filter(
+                user=request.user, 
+                status='active'
+            ).select_related('device', 'device__tab_type')
 
-            return Response(list(possessions))
+            data = [
+                {
+                    "device__serial_number": log.device.serial_number,
+                    "device__tab_type__name": log.device.tab_type.name,
+                    "issued_at": log.issued_at
+                }
+                for log in active_assignments
+            ]
+            return Response(data)
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             return Response({"error": str(e)}, status=500)
 
-# core/views.py
+
 class AdminDashboardView(APIView):
+    """Admin dashboard aggregating physical device metrics and logs."""
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def get(self, request):
-        # 1. Global Stock Levels
-        stock_summary = Tab.objects.values('id', 'name', 'stock_remaining', 'daily_limit_per_user')
+        stock_summary = TabType.objects.annotate(
+            stock_remaining=Count('devices', filter=Q(devices__status='available'))
+        ).values('id', 'name', 'stock_remaining', 'daily_limit_per_user')
 
-        # 2. Currently Held Tabs (All Users)
-        active_possessions = UsageLog.objects.values(
-            'user__employee_id', 'user__username', 'tab__name'
-        ).annotate(
-            balance=Sum('quantity')
-        ).filter(balance__gt=0).order_by('-balance')
+        active_loans = AssignmentLog.objects.filter(status='active').select_related(
+            'user', 'device', 'device__tab_type'
+        ).values(
+            'user__employee_id', 'user__username', 'device__serial_number', 'device__tab_type__name', 'issued_at'
+        ).order_by('-issued_at')
 
-        # 3. ADD THIS: Recent Activity Feed
-        recent_activity = UsageLog.objects.select_related('user', 'tab').order_by('-timestamp')[:10].values(
-            'user__username', 'tab__name', 'quantity', 'timestamp'
-        )
+        recent_activity_qs = AssignmentLog.objects.select_related(
+            'user', 'device', 'device__tab_type'
+        ).order_by('-issued_at')[:10]
+        
+        recent_activity = []
+        for log in recent_activity_qs:
+            recent_activity.append({
+                'user__username': log.user.username,
+                'tab__name': log.device.tab_type.name,
+                'quantity': 1 if log.status == 'active' else -1, 
+                'timestamp': log.issued_at if log.status == 'active' else log.returned_at
+            })
 
         audit_trails = AdminAuditLog.objects.select_related('admin').order_by('-timestamp')[:20].values(
             'admin__username', 'action_type', 'description', 'timestamp'
         )
+        
+        # --- THE FIX: FETCH PENDING RETURNS & OTPS ---
+        pending_returns = ReturnVerification.objects.filter(verified=False).select_related('device', 'device__assigned_to').values(
+            'device__serial_number', 'device__assigned_to__username', 'device__assigned_to__employee_id', 'otp_code', 'created_at'
+        ).order_by('-created_at')
+
+        stats = {
+            "total": TabletDevice.objects.count(),
+            "available": TabletDevice.objects.filter(status='available').count(),
+            "assigned": TabletDevice.objects.filter(status='assigned').count(),
+            "repair": TabletDevice.objects.filter(status='repair').count()
+        }
 
         return Response({
             "stock": list(stock_summary),
-            "active_loans": list(active_possessions),
-            "recent_activity": list(recent_activity),
-            "audit_trails": list(audit_trails) # Add this to the response
+            "stats": stats,
+            "active_loans": list(active_loans),
+            "recent_activity": recent_activity,
+            "audit_trails": list(audit_trails),
+            "pending_returns": list(pending_returns) # <-- MUST BE INCLUDED HERE
         })
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -177,7 +250,7 @@ class UserActivityHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        logs = UsageLog.objects.filter(user=request.user).select_related('tab').order_by('-timestamp')[:20]
+        logs = AssignmentLog.objects.filter(user=request.user).select_related('tab').order_by('-timestamp')[:20]
         data = [{
             "tab_name": log.tab.name,
             "action": "Logged" if log.quantity > 0 else "Returned",
@@ -185,12 +258,105 @@ class UserActivityHistoryView(APIView):
         } for log in logs]
         return Response(data)
 
+class InitiateReturnView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        device_id = request.data.get("device_id")
+        try:
+            # FIX: Allow BOTH 'assigned' and 'return_pending'. 
+            # This way, if they refresh the app, it doesn't error out!
+            device = TabletDevice.objects.get(
+                serial_number=device_id, 
+                status__in=["assigned", "return_pending"],
+                assigned_to=request.user
+            )
+        except TabletDevice.DoesNotExist:
+            return Response({"error": "Device not found, not assigned to you, or already returned."}, status=404)
+
+        # Generate a new OTP and save it
+        otp = f"{random.randint(100000, 999999)}"
+        ReturnVerification.objects.create(device=device, otp_code=otp)
+        
+        # Change status
+        device.status = "return_pending"
+        device.save()
+        
+        return Response({"message": "Return initiated. Please ask the Admin for your 6-digit OTP to complete the return."})
+
+
+class VerifyReturnView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        device_id = request.data.get("device_id")
+        otp_code = request.data.get("otp_code")
+        condition = request.data.get("condition", "Good")
+        
+        try:
+            # FIX: Verify the OTP actually belongs to the user trying to return it
+            rv = ReturnVerification.objects.filter(
+                device__serial_number=device_id, 
+                otp_code=otp_code, 
+                verified=False,
+                device__assigned_to=request.user
+            ).latest('created_at') # In case they initiated multiple times, get the newest
+        except ReturnVerification.DoesNotExist:
+            return Response({"error": "Invalid OTP. Please check with the Admin."}, status=400)
+        
+        if rv.expires_at < timezone.now():
+            return Response({"error": "OTP expired. Please initiate return again."}, status=400)
+        
+        rv.verified = True
+        rv.save()
+        
+        device = rv.device
+        device.status = "available" if condition.lower() == "good" else "repair"
+        device.condition = condition
+        device.assigned_to = None
+        device.save()
+        
+        try:
+            log = AssignmentLog.objects.get(device=device, status="active")
+            log.status = "returned"
+            log.returned_at = timezone.now()
+            log.save()
+        except AssignmentLog.DoesNotExist:
+            pass
+        
+        return Response({"success": "Return Verified! You have successfully returned the tablet."})
+
+class AllAssignmentLogsView(APIView):
+    """Returns a full list of all assignment logs for the dedicated logs page."""
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def get(self, request):
+        logs = AssignmentLog.objects.select_related(
+            'user', 'device', 'device__tab_type'
+        ).order_by('-issued_at')
+        
+        data = []
+        for log in logs:
+            data.append({
+                'id': log.id,
+                'employee_id': log.user.employee_id,
+                'username': log.user.username,
+                'serial_number': log.device.serial_number,
+                'tab_model': log.device.tab_type.name,
+                'status': log.status, # 'active' or 'returned'
+                'issued_at': log.issued_at,
+                'returned_at': log.returned_at,
+            })
+            
+        return Response(data)
+
+        
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def filtered_logs(request):
     """Allows admins to filter logs by Employee ID or Tab Name."""
     query = request.query_params.get('search', '')
-    logs = UsageLog.objects.select_related('user', 'tab').filter(
+    logs = AssignmentLog.objects.select_related('user', 'tab').filter(
         models.Q(user__employee_id__icontains=query) | 
         models.Q(tab__name__icontains=query)
     ).order_by('-timestamp')[:50]
@@ -204,31 +370,7 @@ def filtered_logs(request):
     } for log in logs]
     return Response(data)
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def export_usage_csv(request):
-    # Create the HttpResponse object with the appropriate CSV header.
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="tab_audit_logs.csv"'
 
-    writer = csv.writer(response)
-    # Write Header [cite: 105-112]
-    writer.writerow(['Timestamp', 'Employee ID', 'Branch', 'Tab Type', 'Quantity', 'IP Address', 'Device'])
-
-    # Write Data
-    logs = UsageLog.objects.all().select_related('user', 'branch', 'tab')
-    for log in logs:
-        writer.writerow([
-            log.timestamp,
-            log.user.employee_id,
-            log.branch.name,
-            log.tab.name,
-            log.quantity,
-            log.ip_address,
-            log.device_info
-        ])
-
-    return response
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
@@ -239,14 +381,14 @@ def admin_dashboard_stats(request):
 
         stats = {
             # Total stock available across all Tab types
-            "total_stock": Tab.objects.aggregate(Sum('stock_remaining'))['stock_remaining__sum'] or 0,
+            "total_stock": TabletDevice.objects.aggregate(Sum('stock_remaining'))['stock_remaining__sum'] or 0,
             
             # Usage metrics from UsageLog
-            "used_today": UsageLog.objects.filter(timestamp__gte=today, quantity__gt=0).count(),
-            "used_this_month": UsageLog.objects.filter(timestamp__gte=this_month, quantity__gt=0).count(),
+            "used_today": AssignmentLog.objects.filter(timestamp__gte=today, quantity__gt=0).count(),
+            "used_this_month": AssignmentLog.objects.filter(timestamp__gte=this_month, quantity__gt=0).count(),
             
             # Stock breakdown by Tab type instead of branch
-            "inventory_breakdown": list(Tab.objects.values('name', 'stock_remaining'))
+            "inventory_breakdown": list(TabletDevice.objects.values('name', 'stock_remaining'))
         }
         
         return Response(stats)
@@ -260,23 +402,36 @@ def export_usage_csv(request):
     response['Content-Disposition'] = 'attachment; filename="warehouse_logs.csv"'
 
     writer = csv.writer(response)
-    # Header row
-    writer.writerow(['Timestamp', 'Employee ID', 'Username', 'Tab Name', 'Action', 'Quantity'])
+    # Updated Header row for the new physical device architecture
+    writer.writerow([
+        'Issued At', 
+        'Returned At', 
+        'Employee ID', 
+        'Username', 
+        'Device Serial', 
+        'Tab Model', 
+        'Status'
+    ])
 
-    logs = UsageLog.objects.select_related('user', 'tab').all().order_by('-timestamp')
+    # FIX: Query using the correct new relationships ('device', 'device__tab_type') 
+    # and order by the new date field ('-issued_at')
+    logs = AssignmentLog.objects.select_related(
+        'user', 'device', 'device__tab_type'
+    ).all().order_by('-issued_at')
     
     for log in logs:
-        # Convert the UTC timestamp from the database to your local timezone
-        local_time = timezone.localtime(log.timestamp) 
+        # Convert UTC timestamps to local timezone safely
+        issued_time = timezone.localtime(log.issued_at).strftime('%Y-%m-%d %H:%M:%S') if log.issued_at else ""
+        returned_time = timezone.localtime(log.returned_at).strftime('%Y-%m-%d %H:%M:%S') if log.returned_at else "Pending"
         
-        action = "Logged" if log.quantity > 0 else "Returned"
         writer.writerow([
-            local_time.strftime('%Y-%m-%d %H:%M:%S'), # Use local_time
+            issued_time,
+            returned_time,
             log.user.employee_id,
             log.user.username,
-            log.tab.name,
-            action,
-            abs(log.quantity)
+            log.device.serial_number,
+            log.device.tab_type.name,
+            log.status.title() # Will print "Active" or "Returned"
         ])
 
     return response
@@ -292,7 +447,7 @@ def add_tab_stock(request):
         return Response({"error": "Tab name is required."}, status=400)
 
     # get_or_create determines if this is a NEW tab or an existing one
-    tab, created = Tab.objects.get_or_create(
+    tab, created = TabletDevice.objects.get_or_create(
         name=name,
         defaults={'stock_remaining': quantity, 'daily_limit_per_user': limit}
     )
