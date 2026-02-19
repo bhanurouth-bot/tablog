@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import dj_database_url
-import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,9 +24,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-)&u$y3n(hxu&)818g$v^isvydv1uj^%g89i105^k%za!kabpk-'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = ['tablog.onrender.com', 'localhost', '127.0.0.1']
-SECURE_SSL_REDIRECT = False 
+DEBUG = True
+ALLOWED_HOSTS = ['*'] # Railway will provide the specific domain
+SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
@@ -50,7 +49,6 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -64,10 +62,10 @@ ROOT_URLCONF = 'tab_audit_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
-                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -75,6 +73,7 @@ TEMPLATES = [
         },
     },
 ]
+
 WSGI_APPLICATION = 'tab_audit_system.wsgi.application'
 
 
@@ -147,11 +146,7 @@ SPECTACULAR_SETTINGS = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATIC_URL = '/static/'
-WHITENOISE_INDEX_FILE = True
-
-# FRONTEND_BUILD_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
+STATIC_URL = 'static/'
 
 # Essential for the Employee ID login requirement [cite: 14, 84]
 AUTH_USER_MODEL = 'core.User'
@@ -159,25 +154,8 @@ AUTH_USER_MODEL = 'core.User'
 # Ensure HTTPS only as per requirements [cite: 131]
 
 # CORS_ALLOW_ALL_ORIGINS = True
-
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https:\/\/.*\.vercel\.app$",
-]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://172.31.0.203:3000",
-    "https://tablog.onrender.com", # Add your Render frontend URL here
-    "https://tablog-rmywq0jyn-aalokes-projects-cd7050de.vercel.app",
-    "https://tablog-zeta.vercel.app/",
 ]
-
-CSRF_TRUSTED_ORIGINS = [
-    "https://*.vercel.app",
-    "https://tablog.onrender.com",
-]
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage", # Less strict than Manifest
-    },
-}
