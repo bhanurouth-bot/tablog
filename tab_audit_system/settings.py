@@ -153,10 +153,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATIC_URL = '/static/'
 WHITENOISE_INDEX_FILE = True
 
-FRONTEND_BUILD_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
+# FRONTEND_BUILD_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
 
 STATICFILES_DIRS = [
-    FRONTEND_BUILD_DIR,
+    FRONTEND_DIR,
 ]
 # Essential for the Employee ID login requirement [cite: 14, 84]
 AUTH_USER_MODEL = 'core.User'
