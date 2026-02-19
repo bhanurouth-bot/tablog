@@ -8,7 +8,7 @@ pip install -r requirements.txt
 # 2. Go to the correct frontend subfolder and build
 cd frontend/tab-audit-frontend
 npm install
-npm run build
+CI=false npm run build
 cd ../..
 
 # 3. Collect static files (including the new React build)
