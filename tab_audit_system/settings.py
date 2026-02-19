@@ -64,10 +64,12 @@ ROOT_URLCONF = 'tab_audit_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [FRONTEND_DIR], # Add FRONTEND_DIR here
+        # DIRS tells Django where to look for 'index.html'
+        'DIRS': [FRONTEND_DIR], 
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -75,7 +77,6 @@ TEMPLATES = [
         },
     },
 ]
-
 WSGI_APPLICATION = 'tab_audit_system.wsgi.application'
 
 
