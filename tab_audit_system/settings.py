@@ -16,7 +16,7 @@ import dj_database_url
 import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -64,8 +64,6 @@ ROOT_URLCONF = 'tab_audit_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # DIRS tells Django where to look for 'index.html'
-        'DIRS': [FRONTEND_DIR], 
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -155,9 +153,6 @@ WHITENOISE_INDEX_FILE = True
 
 # FRONTEND_BUILD_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
 
-STATICFILES_DIRS = [
-    FRONTEND_DIR,
-]
 # Essential for the Employee ID login requirement [cite: 14, 84]
 AUTH_USER_MODEL = 'core.User'
 

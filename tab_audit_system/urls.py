@@ -25,8 +25,7 @@ urlpatterns = [
     path('api/admin/export-csv/', export_usage_csv, name='export_usage_csv'), # Add this line
     path('api/admin/add-tab/', add_tab_stock, name='add-tab'),
     path('api/user/history/', UserActivityHistoryView.as_view(), name='user-history'),
-    re_path(r'^(?!static|admin|api).*$', TemplateView.as_view(template_name='index.html')),
-]
+    
 
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
