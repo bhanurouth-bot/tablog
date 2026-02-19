@@ -158,18 +158,19 @@ AUTH_USER_MODEL = 'core.User'
 
 # Ensure HTTPS only as per requirements [cite: 131]
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https:\/\/.*\.vercel\.app$",
 ]
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",
-#     "http://127.0.0.1:3000",
-#     "http://172.31.0.203:3000",
-#     "https://tablog.onrender.com", # Add your Render frontend URL here
-#     "https://tablog-rmywq0jyn-aalokes-projects-cd7050de.vercel.app",
-# ]
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://172.31.0.203:3000",
+    "https://tablog.onrender.com", # Add your Render frontend URL here
+    "https://tablog-rmywq0jyn-aalokes-projects-cd7050de.vercel.app",
+    "https://tablog-zeta.vercel.app/",
+]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.vercel.app",

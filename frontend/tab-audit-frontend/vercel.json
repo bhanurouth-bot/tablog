@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/(api|admin|static)/(.*)",
+      "destination": "https://tablog.onrender.com/$1/$2"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
