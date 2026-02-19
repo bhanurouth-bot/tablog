@@ -148,16 +148,15 @@ SPECTACULAR_SETTINGS = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_URL = '/static/'
+WHITENOISE_INDEX_FILE = True
 
-FRONTEND_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend'
+FRONTEND_BUILD_DIR = BASE_DIR / 'frontend' / 'tab-audit-frontend' / 'build'
 
 STATICFILES_DIRS = [
-    FRONTEND_DIR,
+    FRONTEND_BUILD_DIR,
 ]
-
-WHITENOISE_INDEX_FILE = True
 # Essential for the Employee ID login requirement [cite: 14, 84]
 AUTH_USER_MODEL = 'core.User'
 

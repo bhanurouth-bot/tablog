@@ -2,15 +2,15 @@
 # exit on error
 set -o errexit
 
-# 1. Install Python dependencies
+# 1. Install Django dependencies
 pip install -r requirements.txt
 
-# 2. Build Frontend (Replace 'frontend' with your folder name)
-cd frontend
+# 2. Go to the correct frontend subfolder and build
+cd frontend/tab-audit-frontend
 npm install
 npm run build
-cd ..
+cd ../..
 
-# 3. Collect all files (including the React build) into staticfiles/
+# 3. Collect static files (including the new React build)
 python manage.py collectstatic --no-input
 python manage.py migrate
