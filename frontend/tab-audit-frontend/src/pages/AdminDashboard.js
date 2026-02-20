@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 const AdminDashboard = () => {
     const { token, logout } = useContext(AuthContext);
+    const [selectedTabTypeId, setSelectedTabTypeId] = useState('');
     
     const [data, setData] = useState({ 
         stats: {}, 
@@ -105,6 +106,63 @@ const AdminDashboard = () => {
                         <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc2626' }}>{data.stats.repair || 0}</div>
                     </div>
                 </div>
+            </div>
+
+            {/* ASSIGNMENT OTP GENERATOR */}
+            <div className="card" style={{ maxWidth: '100%', padding: '20px', marginBottom: '30px', border: '2px solid #3b82f6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ color: '#1d4ed8', marginTop: 0 }}>🔑 Assignment OTPs (Give to users for automatic assignment)</h3>
+                    
+                    {/* Generate OTP Form */}
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <select 
+                            className="input-field" style={{ margin: 0, padding: '8px', minWidth: '200px' }}
+                            value={selectedTabTypeId} onChange={(e) => setSelectedTabTypeId(e.target.value)}
+                        >
+                            <option value="">-- Select Tablet Model --</option>
+                            {data.tab_types && data.tab_types.map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                        </select>
+                        <button 
+                            className="btn-primary" style={{ margin: 0, padding: '8px 15px' }}
+                            onClick={() => {
+                                if(!selectedTabTypeId) return alert("Select a tab model first!");
+                                axios.post(`${API_BASE_URL}/api/assign/generate-otp/`, { tab_type_id: selectedTabTypeId }, { headers: { Authorization: `Bearer ${token}` }})
+                                .then(() => fetchDashboardData())
+                                .catch(err => alert("Failed to generate OTP."));
+                            }}
+                        >
+                            + Generate OTP
+                        </button>
+                    </div>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '15px', fontSize: '14px' }}>
+                    <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '2px solid #eee' }}>
+                            <th style={{ padding: '10px' }}>Tablet Model</th>
+                            <th style={{ padding: '10px' }}>Assignment OTP</th>
+                            <th style={{ padding: '10px' }}>Generated At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {data.active_assignment_otps && data.active_assignment_otps.map((otpObj, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                <td style={{ padding: '12px', fontWeight: 'bold' }}>{otpObj.tab_type__name}</td>
+                                <td style={{ padding: '12px' }}>
+                                    <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '2px', color: '#1d4ed8', background: '#dbeafe', padding: '4px 8px', borderRadius: '6px' }}>
+                                        {otpObj.otp_code}
+                                    </span>
+                                </td>
+                                <td style={{ padding: '12px', color: '#6b7280' }}>{new Date(otpObj.created_at).toLocaleTimeString()}</td>
+                            </tr>
+                        ))}
+                        {(!data.active_assignment_otps || data.active_assignment_otps.length === 0) && (
+                            <tr><td colSpan="3" style={{ padding: '12px', textAlign: 'center', color: '#666' }}>No active assignment OTPs.</td></tr>
+                        )}
+                    </tbody>
+                </table>
             </div>
 
             {/* PENDING RETURNS (OTP DISPLAY) */}

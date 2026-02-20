@@ -12,10 +12,10 @@ from core.views import (
     AdminDashboardView, 
     add_tab_stock, 
     export_usage_csv,
-    AssignTabletView,      # <-- Add this
-    InitiateReturnView,    # <-- Add this
-    VerifyReturnView,       # <-- Add this
-    AllAssignmentLogsView,
+    AssignTabletView,      
+    InitiateReturnView,    
+    VerifyReturnView,
+    GenerateAssignmentOTPView # <-- Add the new OTP view import
 )
 
 urlpatterns = [
@@ -39,7 +39,7 @@ urlpatterns = [
     
     # NEW: Physical Assignment & Return Paths
     path('api/assign/', AssignTabletView.as_view(), name='assign-tablet'),
+    path('api/assign/generate-otp/', GenerateAssignmentOTPView.as_view(), name='generate-assign-otp'), # <-- Add this path
     path('api/return/initiate/', InitiateReturnView.as_view(), name='return-initiate'),
     path('api/return/verify/', VerifyReturnView.as_view(), name='return-verify'),
-    path('api/logs/', AllAssignmentLogsView.as_view(), name='all-logs'),
 ]

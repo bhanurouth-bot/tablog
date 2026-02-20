@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 # 1. Import your custom view from core.views
 from core import views
-from core.views import TabCheckInView, UserPossessionView, MyTokenObtainPairView, add_tab_stock,UserActivityHistoryView  # Add this import 
+from core.views import TabCheckInView, UserPossessionView,GenerateAssignmentOTPView, MyTokenObtainPairView, add_tab_stock,UserActivityHistoryView  # Add this import 
 from core.views import (
     AssignTabletView, 
     AdminDashboardView, 
@@ -28,4 +28,5 @@ urlpatterns = [
     path('api/admin/add-tab/', add_tab_stock, name='add-tab'),
     path('api/return/initiate/', InitiateReturnView.as_view(), name='return-initiate'),
     path('api/return/verify/', VerifyReturnView.as_view(), name='return-verify'),
+    path('api/assign/generate-otp/', GenerateAssignmentOTPView.as_view(), name='generate-assign-otp'),
 ]

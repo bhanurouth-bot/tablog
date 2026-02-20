@@ -15,32 +15,82 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from drf_spectacular.utils import extend_schema
 
 # Make sure User and ReturnVerification are in this list!
-from .models import AdminAuditLog, TabType, TabletDevice, AssignmentLog, User, ReturnVerification 
+from .models import AdminAuditLog, TabType, TabletDevice, AssignmentLog,AssignmentOTP, User, ReturnVerification 
 from .serializers import CheckInSerializer, TabTypeSerializer
 import csv
 import random
 from core import models
 
-class AssignTabletView(APIView):
-    """Handles a user self-assigning a physical tablet."""
-    permission_classes = [permissions.IsAuthenticated] # ANY logged-in user can do this
+class GenerateAssignmentOTPView(APIView):
+    """Admin generates an OTP that users can use to get a random free tab."""
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def post(self, request):
-        device_id = request.data.get('device_id')
-        user = request.user # Automatically use the logged-in user
-
-        if not device_id:
-            return Response({"error": "device_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-
+        tab_type_id = request.data.get('tab_type_id')
         try:
-            device = TabletDevice.objects.get(serial_number=device_id)
-        except TabletDevice.DoesNotExist:
-            return Response({"error": f"Tablet '{device_id}' does not exist."}, status=status.HTTP_404_NOT_FOUND)
+            tab_type = TabType.objects.get(id=tab_type_id)
+        except TabType.DoesNotExist:
+            return Response({"error": "Invalid Tab Model selected."}, status=400)
+        
+        # --- THE FIX: Check if there are any available devices FIRST ---
+        available_count = TabletDevice.objects.filter(tab_type=tab_type, status='available').count()
+        if available_count <= 0:
+            return Response(
+                {"error": f"Cannot generate OTP: There are 0 available '{tab_type.name}' devices left in stock."}, 
+                status=400
+            )
 
-        if device.status != 'available':
-            return Response({"error": f"Device is currently {device.status}."}, status=status.HTTP_400_BAD_REQUEST)
+        # Generate a unique 6-digit OTP
+        otp = f"{random.randint(100000, 999999)}"
+        while AssignmentOTP.objects.filter(otp_code=otp, is_used=False).exists():
+            otp = f"{random.randint(100000, 999999)}"
+            
+        AssignmentOTP.objects.create(tab_type=tab_type, otp_code=otp)
+        return Response({"message": "Assignment OTP Generated!", "otp_code": otp})
+        
+class AssignTabletView(APIView):
+    """Handles a user self-assigning a tablet via SCAN OR OTP."""
+    permission_classes = [permissions.IsAuthenticated]
 
-        # Check Daily Limit
+    def post(self, request):
+        device_id = request.data.get('device_id') # For Scanning
+        otp_code = request.data.get('otp_code')   # For OTP Assignment
+        user = request.user 
+
+        if not device_id and not otp_code:
+            return Response({"error": "Please provide either a scan barcode or an OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
+        device = None
+
+        # --- OTP ASSIGNMENT WORKFLOW ---
+        if otp_code:
+            try:
+                assignment_otp = AssignmentOTP.objects.get(otp_code=otp_code, is_used=False)
+                if assignment_otp.expires_at < timezone.now():
+                    return Response({"error": "This OTP has expired."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Find the first available device of the requested type
+                device = TabletDevice.objects.filter(tab_type=assignment_otp.tab_type, status='available').first()
+                if not device:
+                    return Response({"error": f"No available devices for {assignment_otp.tab_type.name} at the moment."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Mark OTP as used so it can't be used twice
+                assignment_otp.is_used = True
+                assignment_otp.save()
+            except AssignmentOTP.DoesNotExist:
+                return Response({"error": "Invalid or already used OTP."}, status=status.HTTP_404_NOT_FOUND)
+        
+        # --- SCAN ASSIGNMENT WORKFLOW ---
+        else:
+            try:
+                device = TabletDevice.objects.get(serial_number=device_id)
+            except TabletDevice.DoesNotExist:
+                return Response({"error": f"Tablet '{device_id}' does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+            if device.status != 'available':
+                return Response({"error": f"Device is currently {device.status}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Check Daily Limit
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         usage_today = AssignmentLog.objects.filter(
             user=user, device__tab_type=device.tab_type, issued_at__gte=today_start
@@ -49,18 +99,20 @@ class AssignTabletView(APIView):
         if usage_today >= device.tab_type.daily_limit_per_user:
             return Response({"error": f"You reached your daily limit for this tab type."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 4. Update Device Status
         device.status = 'assigned'
         device.assigned_to = user
         device.assigned_at = timezone.now()
         device.save()
 
+        # 5. Create Assignment Log
         AssignmentLog.objects.create(
             user=user, device=device, status='active',
             ip_address=request.META.get('REMOTE_ADDR', '0.0.0.0'),
             device_info=request.META.get('HTTP_USER_AGENT', 'Unknown')
         )
 
-        return Response({"message": f"Device {device.serial_number} assigned to you successfully!"}, status=status.HTTP_201_CREATED)
+        return Response({"message": f"Assigned! Pick up device Serial: {device.serial_number}"}, status=status.HTTP_201_CREATED)
 
 
 
@@ -178,57 +230,42 @@ class UserPossessionView(APIView):
 
 
 class AdminDashboardView(APIView):
-    """Admin dashboard aggregating physical device metrics and logs."""
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def get(self, request):
+        tab_types = TabType.objects.values('id', 'name')
+        
         stock_summary = TabType.objects.annotate(
             stock_remaining=Count('devices', filter=Q(devices__status='available'))
         ).values('id', 'name', 'stock_remaining', 'daily_limit_per_user')
 
         active_loans = AssignmentLog.objects.filter(status='active').select_related(
             'user', 'device', 'device__tab_type'
-        ).values(
-            'user__employee_id', 'user__username', 'device__serial_number', 'device__tab_type__name', 'issued_at'
-        ).order_by('-issued_at')
+        ).values('user__employee_id', 'user__username', 'device__serial_number', 'device__tab_type__name', 'issued_at').order_by('-issued_at')
 
-        recent_activity_qs = AssignmentLog.objects.select_related(
-            'user', 'device', 'device__tab_type'
-        ).order_by('-issued_at')[:10]
-        
-        recent_activity = []
-        for log in recent_activity_qs:
-            recent_activity.append({
-                'user__username': log.user.username,
-                'tab__name': log.device.tab_type.name,
-                'quantity': 1 if log.status == 'active' else -1, 
-                'timestamp': log.issued_at if log.status == 'active' else log.returned_at
-            })
+        recent_activity_qs = AssignmentLog.objects.select_related('user', 'device', 'device__tab_type').order_by('-issued_at')[:10]
+        recent_activity = [{'user__username': log.user.username, 'tab__name': log.device.tab_type.name, 'quantity': 1 if log.status == 'active' else -1, 'timestamp': log.issued_at if log.status == 'active' else log.returned_at} for log in recent_activity_qs]
 
-        audit_trails = AdminAuditLog.objects.select_related('admin').order_by('-timestamp')[:20].values(
-            'admin__username', 'action_type', 'description', 'timestamp'
-        )
+        audit_trails = AdminAuditLog.objects.select_related('admin').order_by('-timestamp')[:20].values('admin__username', 'action_type', 'description', 'timestamp')
         
-        # --- THE FIX: FETCH PENDING RETURNS & OTPS ---
-        pending_returns = ReturnVerification.objects.filter(verified=False).select_related('device', 'device__assigned_to').values(
-            'device__serial_number', 'device__assigned_to__username', 'device__assigned_to__employee_id', 'otp_code', 'created_at'
-        ).order_by('-created_at')
+        pending_returns = ReturnVerification.objects.filter(verified=False).select_related('device', 'device__assigned_to').values('device__serial_number', 'device__assigned_to__username', 'device__assigned_to__employee_id', 'otp_code', 'created_at').order_by('-created_at')
+
+        # NEW: Fetch active assignment OTPs so admin can see them
+        active_assignment_otps = AssignmentOTP.objects.filter(is_used=False, expires_at__gt=timezone.now()).select_related('tab_type').values('otp_code', 'tab_type__name', 'created_at').order_by('-created_at')
 
         stats = {
-            "total": TabletDevice.objects.count(),
-            "available": TabletDevice.objects.filter(status='available').count(),
-            "assigned": TabletDevice.objects.filter(status='assigned').count(),
-            "repair": TabletDevice.objects.filter(status='repair').count()
+            "total": TabletDevice.objects.count(), "available": TabletDevice.objects.filter(status='available').count(),
+            "assigned": TabletDevice.objects.filter(status='assigned').count(), "repair": TabletDevice.objects.filter(status='repair').count()
         }
 
         return Response({
-            "stock": list(stock_summary),
-            "stats": stats,
-            "active_loans": list(active_loans),
-            "recent_activity": recent_activity,
-            "audit_trails": list(audit_trails),
-            "pending_returns": list(pending_returns) # <-- MUST BE INCLUDED HERE
+            "tab_types": list(tab_types),
+            "stock": list(stock_summary), "stats": stats, "active_loans": list(active_loans),
+            "recent_activity": recent_activity, "audit_trails": list(audit_trails),
+            "pending_returns": list(pending_returns),
+            "active_assignment_otps": list(active_assignment_otps) # Added here
         })
+
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -350,7 +387,7 @@ class AllAssignmentLogsView(APIView):
             
         return Response(data)
 
-        
+
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def filtered_logs(request):

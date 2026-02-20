@@ -79,3 +79,17 @@ class ReturnVerification(models.Model):
         if not self.expires_at:
             self.expires_at = timezone.now() + timedelta(minutes=10)  # OTP valid 10 min
         super().save(*args, **kwargs)
+
+class AssignmentOTP(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tab_type = models.ForeignKey(TabType, on_delete=models.CASCADE)
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            # OTPs for assignment are valid for 12 hours
+            self.expires_at = timezone.now() + timedelta(hours=12)  
+        super().save(*args, **kwargs)
