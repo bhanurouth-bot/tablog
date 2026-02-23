@@ -15,7 +15,8 @@ from core.views import (
     AssignTabletView,      
     InitiateReturnView,    
     VerifyReturnView,
-    GenerateAssignmentOTPView # <-- Add the new OTP view import
+    GenerateAssignmentOTPView,
+    AllAssignmentLogsView  # <-- ADDED THIS IMPORT
 )
 
 urlpatterns = [
@@ -29,7 +30,7 @@ urlpatterns = [
     path('api/possession/', UserPossessionView.as_view(), name='user-possession'),
     path('api/user/history/', UserActivityHistoryView.as_view(), name='user-history'),
     
-    # Legacy check-in (Can be removed later)
+    # Legacy check-in
     path('api/check-in/', TabCheckInView.as_view(), name='tab-check-in'),
     
     # Admin Paths
@@ -37,9 +38,10 @@ urlpatterns = [
     path('api/admin/export-csv/', export_usage_csv, name='export_usage_csv'),
     path('api/admin/add-tab/', add_tab_stock, name='add-tab'),
     
-    # NEW: Physical Assignment & Return Paths
+    # NEW: Physical Assignment, Return & Logs Paths
     path('api/assign/', AssignTabletView.as_view(), name='assign-tablet'),
-    path('api/assign/generate-otp/', GenerateAssignmentOTPView.as_view(), name='generate-assign-otp'), # <-- Add this path
+    path('api/assign/generate-otp/', GenerateAssignmentOTPView.as_view(), name='generate-assign-otp'),
     path('api/return/initiate/', InitiateReturnView.as_view(), name='return-initiate'),
     path('api/return/verify/', VerifyReturnView.as_view(), name='return-verify'),
+    path('api/logs/', AllAssignmentLogsView.as_view(), name='all-logs'), # <-- ADDED THIS PATH
 ]

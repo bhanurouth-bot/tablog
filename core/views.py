@@ -436,43 +436,60 @@ def admin_dashboard_stats(request):
 @permission_classes([IsAdminUser])
 def export_usage_csv(request):
     response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="warehouse_logs.csv"'
+    response['Content-Disposition'] = 'attachment; filename="warehouse_event_logs.csv"'
 
     writer = csv.writer(response)
-    # Updated Header row for the new physical device architecture
     writer.writerow([
-        'Issued At', 
-        'Returned At', 
+        'Action', 
+        'Timestamp', 
         'Employee ID', 
         'Username', 
         'Device Serial', 
-        'Tab Model', 
-        'Status'
+        'Tab Model'
     ])
 
-    # FIX: Query using the correct new relationships ('device', 'device__tab_type') 
-    # and order by the new date field ('-issued_at')
     logs = AssignmentLog.objects.select_related(
         'user', 'device', 'device__tab_type'
     ).all().order_by('-issued_at')
     
+    # Split the row-based logs into distinct events
+    events = []
     for log in logs:
-        # Convert UTC timestamps to local timezone safely
-        issued_time = timezone.localtime(log.issued_at).strftime('%Y-%m-%d %H:%M:%S') if log.issued_at else ""
-        returned_time = timezone.localtime(log.returned_at).strftime('%Y-%m-%d %H:%M:%S') if log.returned_at else "Pending"
-        
+        if log.issued_at:
+            events.append({
+                'action': 'Checked Out',
+                'timestamp': log.issued_at,
+                'emp_id': log.user.employee_id,
+                'username': log.user.username,
+                'serial': log.device.serial_number,
+                'model': log.device.tab_type.name
+            })
+        if log.status == 'returned' and log.returned_at:
+            events.append({
+                'action': 'Returned',
+                'timestamp': log.returned_at,
+                'emp_id': log.user.employee_id,
+                'username': log.user.username,
+                'serial': log.device.serial_number,
+                'model': log.device.tab_type.name
+            })
+            
+    # Sort events purely chronologically
+    events.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    for event in events:
+        local_time = timezone.localtime(event['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
         writer.writerow([
-            issued_time,
-            returned_time,
-            log.user.employee_id,
-            log.user.username,
-            log.device.serial_number,
-            log.device.tab_type.name,
-            log.status.title() # Will print "Active" or "Returned"
+            event['action'],
+            local_time,
+            event['emp_id'],
+            event['username'],
+            event['serial'],
+            event['model']
         ])
 
     return response
-
+    
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def add_tab_stock(request):
