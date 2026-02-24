@@ -248,9 +248,28 @@ class AdminDashboardView(APIView):
 
         audit_trails = AdminAuditLog.objects.select_related('admin').order_by('-timestamp')[:20].values('admin__username', 'action_type', 'description', 'timestamp')
         
-        pending_returns = ReturnVerification.objects.filter(verified=False).select_related('device', 'device__assigned_to').values('device__serial_number', 'device__assigned_to__username', 'device__assigned_to__employee_id', 'otp_code', 'created_at').order_by('-created_at')
+        # --- UPDATE START: Filter to show only the LATEST OTP per device ---
+        all_pending_qs = ReturnVerification.objects.filter(verified=False).select_related(
+            'device', 'device__assigned_to'
+        ).order_by('-created_at') # Newest first
 
-        # NEW: Fetch active assignment OTPs so admin can see them
+        unique_returns_map = {}
+        for rv in all_pending_qs:
+            serial = rv.device.serial_number
+            # Since we ordered by -created_at, the first time we see a serial, it's the latest one.
+            if serial not in unique_returns_map:
+                unique_returns_map[serial] = {
+                    'device__serial_number': serial,
+                    'device__assigned_to__username': rv.device.assigned_to.username if rv.device.assigned_to else "Unknown",
+                    'device__assigned_to__employee_id': rv.device.assigned_to.employee_id if rv.device.assigned_to else "Unknown",
+                    'otp_code': rv.otp_code,
+                    'created_at': rv.created_at
+                }
+        
+        pending_returns = list(unique_returns_map.values())
+        # --- UPDATE END ---
+
+        # Fetch active assignment OTPs so admin can see them
         active_assignment_otps = AssignmentOTP.objects.filter(is_used=False, expires_at__gt=timezone.now()).select_related('tab_type').values('otp_code', 'tab_type__name', 'created_at').order_by('-created_at')
 
         stats = {
@@ -262,8 +281,8 @@ class AdminDashboardView(APIView):
             "tab_types": list(tab_types),
             "stock": list(stock_summary), "stats": stats, "active_loans": list(active_loans),
             "recent_activity": recent_activity, "audit_trails": list(audit_trails),
-            "pending_returns": list(pending_returns),
-            "active_assignment_otps": list(active_assignment_otps) # Added here
+            "pending_returns": pending_returns,
+            "active_assignment_otps": list(active_assignment_otps)
         })
 
 
@@ -301,8 +320,6 @@ class InitiateReturnView(APIView):
     def post(self, request):
         device_id = request.data.get("device_id")
         try:
-            # FIX: Allow BOTH 'assigned' and 'return_pending'. 
-            # This way, if they refresh the app, it doesn't error out!
             device = TabletDevice.objects.get(
                 serial_number=device_id, 
                 status__in=["assigned", "return_pending"],
@@ -310,6 +327,11 @@ class InitiateReturnView(APIView):
             )
         except TabletDevice.DoesNotExist:
             return Response({"error": "Device not found, not assigned to you, or already returned."}, status=404)
+
+        # --- FIX: Delete any existing unverified OTPs for this device ---
+        # This prevents "old" OTPs from cluttering the dashboard or being used
+        ReturnVerification.objects.filter(device=device, verified=False).delete()
+        # ---------------------------------------------------------------
 
         # Generate a new OTP and save it
         otp = f"{random.randint(100000, 999999)}"
@@ -320,7 +342,7 @@ class InitiateReturnView(APIView):
         device.save()
         
         return Response({"message": "Return initiated. Please ask the Admin for your 6-digit OTP to complete the return."})
-
+        
 
 class VerifyReturnView(APIView):
     permission_classes = [permissions.IsAuthenticated]
