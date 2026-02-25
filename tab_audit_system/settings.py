@@ -27,8 +27,8 @@ SECRET_KEY = 'django-insecure-)&u$y3n(hxu&)818g$v^isvydv1uj^%g89i105^k%za!kabpk-
 DEBUG = True
 ALLOWED_HOSTS = ['*'] # Railway will provide the specific domain
 SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = False  # Was True
+CSRF_COOKIE_SECURE = False
 
 # Application definition
 

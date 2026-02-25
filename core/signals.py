@@ -7,7 +7,7 @@ from .models import TabType, User, AdminAuditLog
 @receiver(pre_save, sender=User)
 def check_user_license_limit(sender, instance, **kwargs):
     """
-    Enforces a strict limit of 25 'Active' users for the Free Tier.
+    Enforces a strict limit of 50 'Active' users for the Free Tier.
     Superusers are excluded from this limit to prevent lockout.
     """
     # Check if this is a NEW user being created
@@ -15,7 +15,7 @@ def check_user_license_limit(sender, instance, **kwargs):
         # Count current active users (excluding the one being created)
         current_active_users = User.objects.filter(status='active').count()
         
-        FREE_TIER_LIMIT = 25
+        FREE_TIER_LIMIT = 50
         
         # If limit reached, block creation
         if current_active_users >= FREE_TIER_LIMIT:
