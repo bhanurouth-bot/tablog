@@ -313,13 +313,28 @@ class UserActivityHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        logs = AssignmentLog.objects.filter(user=request.user).select_related('tab').order_by('-timestamp')[:20]
-        data = [{
-            "tab_name": log.tab.name,
-            "action": "Logged" if log.quantity > 0 else "Returned",
-            "timestamp": log.timestamp
-        } for log in logs]
-        return Response(data)
+        try:
+            # 1. Use 'issued_at' for ordering instead of 'timestamp'
+            # 2. Use 'device__tab_type' for select_related instead of 'tab'
+            logs = AssignmentLog.objects.filter(
+                user=request.user
+            ).select_related('device__tab_type').order_by('-issued_at')[:20]
+            
+            data = []
+            for log in logs:
+                data.append({
+                    "tab_name": log.device.tab_type.name, # Correct path to the name
+                    "action": log.status,                # Use the 'status' field from model
+                    "timestamp": log.issued_at,          # Match model field name
+                    "notes": log.notes                   # Include audit trail notes
+                })
+                
+            return Response(data)
+        except Exception as e:
+            # This will print the error to your console for debugging
+            import traceback
+            print(traceback.format_exc())
+            return Response({"error": str(e)}, status=500)
 
 class InitiateReturnView(APIView):
     permission_classes = [permissions.IsAuthenticated]
