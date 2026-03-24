@@ -56,6 +56,9 @@ class AssignmentLog(models.Model):
     status = models.CharField(max_length=20, default="active")
     ip_address = models.GenericIPAddressField()
     device_info = models.TextField()
+    
+    # --- ADD THIS LINE ---
+    notes = models.CharField(max_length=255, blank=True, null=True) 
 
     class Meta:
         ordering = ['-issued_at']

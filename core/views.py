@@ -243,9 +243,16 @@ class AdminDashboardView(APIView):
             'user', 'device', 'device__tab_type'
         ).values('user__employee_id', 'user__username', 'device__serial_number', 'device__tab_type__name', 'issued_at').order_by('-issued_at')
 
-        recent_activity_qs = AssignmentLog.objects.select_related('user', 'device', 'device__tab_type').order_by('-issued_at')[:10]
-        recent_activity = [{'user__username': log.user.username, 'tab__name': log.device.tab_type.name, 'quantity': 1 if log.status == 'active' else -1, 'timestamp': log.issued_at if log.status == 'active' else log.returned_at} for log in recent_activity_qs]
-
+        recent_activity_qs = AssignmentLog.objects.select_related('user', 'device', 'device__tab_type').order_by('-issued_at')[:15]
+        
+        recent_activity = [{
+            'user__username': log.user.username, 
+            'tab__name': log.device.tab_type.name, 
+            'action': log.status, 
+            'notes': log.notes,  # Safely passes null for old logs, and text for new transfers
+            'timestamp': log.issued_at if log.status == 'active' else log.returned_at
+        } for log in recent_activity_qs]
+        
         audit_trails = AdminAuditLog.objects.select_related('admin').order_by('-timestamp')[:20].values('admin__username', 'action_type', 'description', 'timestamp')
         
         # --- UPDATE START: Filter to show only the LATEST OTP per device ---
@@ -547,3 +554,108 @@ def add_tab_stock(request):
         "message": f"Successfully updated {name}",
         "new_stock": tab.stock_remaining
     })
+
+# --- TRANSFER LOGIC ---
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def initiate_transfer(request):
+    """User A initiates a transfer and gets an OTP to give to User B."""
+    device_id = request.data.get("device_id")
+    
+    try:
+        # --- FIX 1: Allow transferring even if return was pending ---
+        device = TabletDevice.objects.get(
+            serial_number=device_id, 
+            status__in=["assigned", "return_pending"], 
+            assigned_to=request.user
+        )
+    except TabletDevice.DoesNotExist:
+        return Response({"error": "Device not found or is not currently assigned to you."}, status=404)
+
+    # Clear any existing unverified OTPs for this device
+    ReturnVerification.objects.filter(device=device, verified=False).delete()
+
+    # Generate a new 6-digit Transfer OTP
+    otp = f"{random.randint(100000, 999999)}"
+    ReturnVerification.objects.create(device=device, otp_code=otp)
+    
+    return Response({
+        "message": "Transfer initiated successfully.",
+        "transfer_otp": otp,
+        "instructions": "Share this 6-digit OTP with the receiving user. They must enter it to claim the tablet."
+    }, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def accept_transfer(request):
+    """User B enters the OTP to claim the tablet from User A."""
+    otp_code = request.data.get("otp_code")
+    
+    if not otp_code:
+        return Response({"error": "Transfer OTP is required."}, status=400)
+
+    try:
+        # Find the unverified OTP
+        rv = ReturnVerification.objects.filter(
+            otp_code=otp_code, 
+            verified=False
+        ).select_related('device', 'device__tab_type', 'device__assigned_to').latest('created_at')
+    except ReturnVerification.DoesNotExist:
+        return Response({"error": "Invalid or already used Transfer OTP."}, status=400)
+    
+    if rv.expires_at < timezone.now():
+        rv.delete() 
+        return Response({"error": "This Transfer OTP has expired and was destroyed. Please ask for a new one."}, status=400)
+
+    device = rv.device
+    original_user = device.assigned_to
+
+    # Prevent user from transferring to themselves
+    if original_user == request.user:
+        return Response({"error": "You cannot transfer a device to yourself."}, status=400)
+
+    # Enforce Daily Limits for the receiving user (User B)
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    usage_today = AssignmentLog.objects.filter(
+        user=request.user, device__tab_type=device.tab_type, issued_at__gte=today_start
+    ).count()
+
+    if usage_today >= device.tab_type.daily_limit_per_user:
+        return Response({"error": f"You have reached your daily limit for {device.tab_type.name} tablets."}, status=400)
+
+    try:
+        with transaction.atomic():
+            # 1. Safely find User A's active log and mark it as transferred out
+            old_log = AssignmentLog.objects.filter(device=device, status="active", user=original_user).first()
+            if old_log:
+                old_log.status = "transferred"
+                old_log.returned_at = timezone.now()
+                old_log.notes = f"Transferred to {request.user.username} ({request.user.employee_id})"
+                old_log.save()
+
+            # 2. Reassign the device to User B
+            device.assigned_to = request.user
+            device.assigned_at = timezone.now()
+            device.status = "assigned"
+            device.save()
+
+            # 3. Create a new active AssignmentLog for User B with incoming transfer notes
+            AssignmentLog.objects.create(
+                user=request.user,
+                device=device,
+                status='active',
+                ip_address=request.META.get('REMOTE_ADDR', '0.0.0.0'),
+                device_info=request.META.get('HTTP_USER_AGENT', 'Unknown'),
+                notes=f"Transferred from {original_user.username} ({original_user.employee_id})"
+            )
+
+            # 4. Destroy the OTP after successful use
+            rv.delete()
+
+        return Response({
+            "message": f"Transfer successful! Tablet {device.serial_number} is now assigned to you."
+        }, status=200)
+
+    except Exception as e:
+        return Response({"error": "An error occurred during transfer.", "details": str(e)}, status=500)
