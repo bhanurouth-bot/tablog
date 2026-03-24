@@ -38,7 +38,7 @@ const AdminDashboard = () => {
     // Auto-refresh the dashboard every 10 seconds to catch new OTPs
     useEffect(() => {
         fetchDashboardData();
-        const intervalId = setInterval(fetchDashboardData, 10000); 
+        const intervalId = setInterval(fetchDashboardData, 2000); 
         return () => clearInterval(intervalId);
     }, [token, API_BASE_URL]);
 
