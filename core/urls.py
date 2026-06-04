@@ -17,7 +17,8 @@ from core.views import (
     InitiateReturnView, 
     VerifyReturnView,
     InitiateTransferView,
-    AcceptTransferView
+    AcceptTransferView,
+    AdminForceReturnView
 )
 
 urlpatterns = [
@@ -35,10 +36,14 @@ urlpatterns = [
     
     path('api/return/initiate/', InitiateReturnView.as_view(), name='return-initiate'),
     path('api/return/verify/', VerifyReturnView.as_view(), name='return-verify'),
+
+    # Force Return by admin
+    path('api/admin/force-return/', AdminForceReturnView.as_view(), name='admin-force-return'),
     
     # --- 2. WRAP THE TRANSFER VIEWS WITH csrf_exempt() ---
     path('api/transfer/initiate/', csrf_exempt(InitiateTransferView.as_view()), name='transfer-initiate'),
     path('api/transfer/accept/', csrf_exempt(AcceptTransferView.as_view()), name='transfer-accept'),
+
     
     path('api/admin/dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
     path('api/admin/add-tab/', add_tab_stock, name='add-tab'),

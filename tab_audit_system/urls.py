@@ -4,10 +4,6 @@ from django.views.generic import TemplateView
 from django.http import JsonResponse, HttpResponse
 from rest_framework_simplejwt.views import TokenRefreshView
 
-print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-print("HELLO! DJANGO IS SUCCESSFULLY READING THIS URLS.PY FILE!")
-print("AND THE TRANSFER ROUTES ARE OFFICIALLY IN IT!")
-print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
 # --- We must import initiate_transfer and accept_transfer here ---
 from core.views import (
@@ -15,7 +11,7 @@ from core.views import (
     UserPossessionView, AdminDashboardView, add_tab_stock, 
     export_usage_csv, AssignTabletView, InitiateReturnView, 
     VerifyReturnView, GenerateAssignmentOTPView, AllAssignmentLogsView,
-    initiate_transfer, accept_transfer 
+    initiate_transfer, accept_transfer,AdminForceReturnView
 )
 
 urlpatterns = [
@@ -51,6 +47,8 @@ urlpatterns = [
     path('api/assign/generate-otp/', GenerateAssignmentOTPView.as_view(), name='generate-assign-otp'),
     path('api/return/initiate/', InitiateReturnView.as_view(), name='return-initiate'),
     path('api/return/verify/', VerifyReturnView.as_view(), name='return-verify'),
+
+    path('api/admin/force-return/', AdminForceReturnView.as_view(), name='admin-force-return'),
     
     # Catch-all for React frontend (MUST be at the very bottom)
     re_path(r'^.*$', TemplateView.as_view(template_name='index.html')),

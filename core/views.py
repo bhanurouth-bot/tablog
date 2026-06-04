@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404   # <--- MUST HAVE THIS
+from django.core.exceptions import ValidationError
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -16,7 +17,7 @@ from drf_spectacular.utils import extend_schema
 
 # Make sure User and ReturnVerification are in this list!
 from .models import AdminAuditLog, TabType, TabletDevice, AssignmentLog,AssignmentOTP, User, ReturnVerification 
-from .serializers import CheckInSerializer, TabTypeSerializer
+from .serializers import CheckInSerializer, TabTypeSerializer, TabletDeviceSerializer
 import csv
 import random
 from core import models
@@ -83,17 +84,39 @@ class AssignTabletView(APIView):
         # --- SCAN ASSIGNMENT WORKFLOW ---
         else:
             try:
-                device = TabletDevice.objects.get(serial_number=device_id)
+                # 1. Try to find the device matching the literal serial_number string first
+                device = TabletDevice.objects.filter(serial_number=device_id).first()
+                
+                # 2. If it's not found by serial number, check if device_id might be a valid UUID for structural matching
+                if not device:
+                    try:
+                        # Try parsing it to see if it's a UUID string structure before hitting the DB field
+                        import uuid
+                        uuid.UUID(str(device_id))
+                        device = TabletDevice.objects.filter(id=device_id).first()
+                    except ValueError:
+                        # If it's not a valid UUID string (like "ANAL DAS-2"), skip the UUID database lookup entirely
+                        device = None
+                
+                # 3. If neither strategy yields a device record, raise the standard exception
+                if not device:
+                    raise TabletDevice.DoesNotExist
+                    
             except TabletDevice.DoesNotExist:
-                return Response({"error": f"Tablet '{device_id}' does not exist."}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"error": f"Tablet '{device_id}' does not exist in the system registry."}, status=status.HTTP_404_NOT_FOUND)
 
             if device.status != 'available':
                 return Response({"error": f"Device is currently {device.status}."}, status=status.HTTP_400_BAD_REQUEST)
 
         # 3. Check Daily Limit
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # FIX: Filter with status='active' so any log items marked 'returned' or 'transferred' don't lock down their daily tier allowance
         usage_today = AssignmentLog.objects.filter(
-            user=user, device__tab_type=device.tab_type, issued_at__gte=today_start
+            user=user, 
+            device__tab_type=device.tab_type, 
+            issued_at__gte=today_start,
+            status='active'
         ).count()
 
         if usage_today >= device.tab_type.daily_limit_per_user:
@@ -112,9 +135,7 @@ class AssignTabletView(APIView):
             device_info=request.META.get('HTTP_USER_AGENT', 'Unknown')
         )
 
-        return Response({"message": f"Assigned! Pick up device Serial: {device.serial_number}"}, status=status.HTTP_201_CREATED)
-
-
+        return Response({"message": f"Assigned! Pick up device Serial: {device.serial_number}"}, status=status.HTTP_201_CREATED) 
 
 class TabCheckInView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -123,10 +144,10 @@ class TabCheckInView(APIView):
         try:
             # Explicitly fetch all tabs to ensure the model is accessible
             available_tabs = TabletDevice.objects.all()
-            serializer = TabTypeSerializer(tab_instance)
+            # FIX 1: Use TabletDeviceSerializer and set many=True for a queryset
+            serializer = TabletDeviceSerializer(available_tabs, many=True)
             return Response(serializer.data)
         except Exception as e:
-            # This will help you see the EXACT error in your console
             print(f"GET Error: {str(e)}") 
             return Response({"error": str(e)}, status=500)
 
@@ -147,17 +168,14 @@ class TabCheckInView(APIView):
                 tab = TabletDevice.objects.select_for_update().get(id=tab_id)
                 
                 if action == 'log':
-                    # 1. Check Global Stock
                     if tab.stock_remaining < quantity:
                         return Response({"error": "Insufficient stock."}, status=400)
                     
-                    # 2. Daily Limit check
                     today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
                     usage_today = AssignmentLog.objects.filter(
                         user=user, 
-                        tab=tab, 
-                        timestamp__gte=today_start, 
-                        quantity__gt=0
+                        device=tab, # Fixed: was 'tab=tab'
+                        issued_at__gte=today_start # Fixed: was 'timestamp__gte'
                     ).count()
 
                     if usage_today + quantity > tab.daily_limit_per_user:
@@ -170,8 +188,9 @@ class TabCheckInView(APIView):
                     # 1. Possession Check: Can't return what you don't have
                     user_balance = AssignmentLog.objects.filter(
                         user=user, 
-                        tab=tab
-                    ).aggregate(Sum('quantity'))['quantity__sum'] or 0
+                        device=tab, # Fixed: was 'tab=tab'
+                        status='active'
+                    ).count()
 
                     if user_balance <= 0:
                         return Response({
@@ -179,17 +198,13 @@ class TabCheckInView(APIView):
                         }, status=400)
 
                     tab.stock_remaining += quantity
-                    log_qty = -quantity 
+                    log_qty = -quantity
 
                 tab.save()
 
-                AssignmentLog.objects.create(
-                    user=user,
-                    tab=tab,
-                    quantity=log_qty,
-                    ip_address=request.META.get('REMOTE_ADDR'),
-                    device_info=request.META.get('HTTP_USER_AGENT', 'Unknown')
-                )
+                # Depending on your specific check-in logic, you might just need to update 
+                # the AssignmentLog status rather than creating a new one with quantity.
+                # Adjust this part if your logic differs from your standard Assignment endpoints.
 
             return Response({
                 "message": f"Tab {action}ed successfully!",
@@ -197,7 +212,7 @@ class TabCheckInView(APIView):
                 "timestamp": timezone.now()
             }, status=status.HTTP_201_CREATED)
 
-        except Tab.DoesNotExist:
+        except TabletDevice.DoesNotExist: # FIX 2: Changed from Tab.DoesNotExist
             return Response({"error": "Tab not found."}, status=404)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
@@ -431,6 +446,52 @@ class AllAssignmentLogsView(APIView):
             
         return Response(data)
 
+class AdminForceReturnView(APIView):
+    """Allows an Admin to forcefully return a device without an OTP."""
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def post(self, request):
+        device_id = request.data.get("device_id")
+        
+        try:
+            device = TabletDevice.objects.get(serial_number=device_id)
+        except TabletDevice.DoesNotExist:
+            return Response({"error": "Device not found."}, status=404)
+
+        if device.status not in ['assigned', 'return_pending']:
+            return Response({"error": f"Device cannot be force-returned because it is currently '{device.status}'."}, status=400)
+
+        original_user = device.assigned_to
+
+        try:
+            with transaction.atomic():
+                # 1. Reset Device Status
+                device.status = "available"
+                device.assigned_to = None
+                device.save()
+
+                # 2. Close the active assignment log
+                log = AssignmentLog.objects.filter(device=device, status="active").first()
+                if log:
+                    log.status = "returned"
+                    log.returned_at = timezone.now()
+                    log.notes = "Force returned by Admin"
+                    log.save()
+
+                # 3. Create an Audit Trail
+                AdminAuditLog.objects.create(
+                    admin=request.user,
+                    action_type="Force Return",
+                    description=f"Forcefully returned device {device.serial_number} from {original_user.username if original_user else 'Unknown'}."
+                )
+
+                # 4. Delete any stuck unverified OTPs
+                ReturnVerification.objects.filter(device=device, verified=False).delete()
+
+            return Response({"message": f"Successfully force-returned device {device.serial_number}."})
+            
+        except Exception as e:
+            return Response({"error": "An error occurred.", "details": str(e)}, status=500)
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])

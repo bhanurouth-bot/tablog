@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Tab Audit",
+  "name": "A tab audit system for office/warehouse",
   "icons": [
     {
       "src": "favicon.ico",

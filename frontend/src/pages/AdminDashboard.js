@@ -14,12 +14,55 @@ const AdminDashboard = () => {
         audit_trails: [], 
         pending_returns: [] 
     });
+
+    const FORCE_RETURN_PASSWORD = "warehouse@admin";
+
+    const [showForceModal, setShowForceModal] = useState(false);
+    const [forcePassword, setForcePassword] = useState("");
+    const [selectedDevice, setSelectedDevice] = useState(null);
     
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState(''); // Re-added search state
     const navigate = useNavigate();
 
     const API_BASE_URL = `http://${window.location.hostname}:8000`;
+
+
+    const handleForceReturn = async () => {
+        if (forcePassword !== FORCE_RETURN_PASSWORD) {
+            alert("Invalid Admin Password");
+            return;
+        }
+
+        try {
+            const res = await axios.post(
+                `${API_BASE_URL}/api/admin/force-return/`,
+                {
+                    device_id: selectedDevice
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            );
+
+            alert(res.data.message);
+
+            setShowForceModal(false);
+            setForcePassword("");
+            setSelectedDevice(null);
+
+            fetchDashboardData();
+
+        } catch (err) {
+            alert(
+                err.response?.data?.error ||
+                err.response?.data?.details ||
+                "Force return failed"
+            );
+        }
+    };
 
     const fetchDashboardData = () => {
         axios.get(`${API_BASE_URL}/api/admin/dashboard/`, {
@@ -202,26 +245,96 @@ const AdminDashboard = () => {
             {/* Active Loans */}
             <div className="card" style={{ maxWidth: '100%', padding: '20px', marginBottom: '30px' }}>
                 <h3>Active Tablet Assignments</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '14px' }}>
+
+                <table
+                    style={{
+                        width: '100%',
+                        borderCollapse: 'collapse',
+                        marginTop: '10px',
+                        fontSize: '14px'
+                    }}
+                >
                     <thead>
-                        <tr style={{ textAlign: 'left', borderBottom: '2px solid #eee' }}>
+                        <tr
+                            style={{
+                                textAlign: 'left',
+                                borderBottom: '2px solid #eee'
+                            }}
+                        >
                             <th style={{ padding: '10px' }}>Employee</th>
                             <th style={{ padding: '10px' }}>Device Serial</th>
                             <th style={{ padding: '10px' }}>Tab Model</th>
                             <th style={{ padding: '10px' }}>Issued At</th>
+                            <th style={{ padding: '10px' }}>Action</th>
                         </tr>
                     </thead>
+                        
                     <tbody>
                         {data.active_loans && data.active_loans.map((loan, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                <td style={{ padding: '12px' }}>{loan.user__username} ({loan.user__employee_id})</td>
-                                <td style={{ padding: '12px', fontWeight: 'bold' }}>{loan.device__serial_number}</td>
-                                <td style={{ padding: '12px' }}>{loan.device__tab_type__name}</td>
-                                <td style={{ padding: '12px' }}>{new Date(loan.issued_at).toLocaleString()}</td>
+                            <tr
+                                key={idx}
+                                style={{
+                                    borderBottom: '1px solid #f3f4f6'
+                                }}
+                            >
+                                <td style={{ padding: '12px' }}>
+                                    {loan.user__username} ({loan.user__employee_id})
+                                </td>
+                            
+                                <td
+                                    style={{
+                                        padding: '12px',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    {loan.device__serial_number}
+                                </td>
+                                
+                                <td style={{ padding: '12px' }}>
+                                    {loan.device__tab_type__name}
+                                </td>
+                                
+                                <td style={{ padding: '12px' }}>
+                                    {new Date(loan.issued_at).toLocaleString()}
+                                </td>
+                                
+                                <td style={{ padding: '12px' }}>
+                                    <button
+                                        onClick={() => {
+                                            setSelectedDevice(loan.device__serial_number);
+                                            setForcePassword("");
+                                            setShowForceModal(true);
+                                        }}
+                                        style={{
+                                            background: '#dc2626',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontWeight: 'bold'
+                                        }}
+                                    >
+                                        Force Return
+                                    </button>
+                                </td>
                             </tr>
                         ))}
-                        {(!data.active_loans || data.active_loans.length === 0) && (
-                            <tr><td colSpan="4" style={{ padding: '12px', textAlign: 'center', color: '#666' }}>No active assignments.</td></tr>
+
+                        {(!data.active_loans ||
+                            data.active_loans.length === 0) && (
+                            <tr>
+                                <td
+                                    colSpan="5"
+                                    style={{
+                                        padding: '12px',
+                                        textAlign: 'center',
+                                        color: '#666'
+                                    }}
+                                >
+                                    No active assignments.
+                                </td>
+                            </tr>
                         )}
                     </tbody>
                 </table>
@@ -283,6 +396,108 @@ const AdminDashboard = () => {
                     )}
                 </div>
             </div>
+            {showForceModal && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: "100%",
+                        background: "rgba(0,0,0,0.6)",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        zIndex: 9999
+                    }}
+                >
+                    <div
+                        style={{
+                            background: "#fff",
+                            width: "400px",
+                            borderRadius: "12px",
+                            padding: "25px",
+                            boxShadow: "0 10px 30px rgba(0,0,0,0.25)"
+                        }}
+                    >
+                        <h2
+                            style={{
+                                marginTop: 0,
+                                color: "#dc2626",
+                                marginBottom: "15px"
+                            }}
+                        >
+                            ⚠ Force Return
+                        </h2>
+                        
+                        <p>
+                            Device:
+                            <strong> {selectedDevice}</strong>
+                        </p>
+                        
+                        <input
+                            type="password"
+                            placeholder="Enter Admin Password"
+                            value={forcePassword}
+                            onChange={(e) => setForcePassword(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    handleForceReturn();
+                                }
+                            }}
+                            style={{
+                                width: "100%",
+                                padding: "10px",
+                                marginTop: "10px",
+                                border: "1px solid #ccc",
+                                borderRadius: "6px",
+                                boxSizing: "border-box"
+                            }}
+                        />
+            
+                        <div
+                            style={{
+                                display: "flex",
+                                justifyContent: "flex-end",
+                                gap: "10px",
+                                marginTop: "20px"
+                            }}
+                        >
+                            <button
+                                onClick={() => {
+                                    setShowForceModal(false);
+                                    setForcePassword("");
+                                    setSelectedDevice(null);
+                                }}
+                                style={{
+                                    padding: "8px 15px",
+                                    borderRadius: "6px",
+                                    border: "1px solid #ccc",
+                                    background: "#f3f4f6",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            
+                            <button
+                                onClick={handleForceReturn}
+                                style={{
+                                    padding: "8px 15px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: "#dc2626",
+                                    color: "white",
+                                    fontWeight: "bold",
+                                    cursor: "pointer"
+                                }}
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
