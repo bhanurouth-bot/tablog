@@ -170,3 +170,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://172.31.0.203:3000",
 ]
+
+# CSRF Settings for Production
+CSRF_TRUSTED_ORIGINS = [
+    "https://tablog-9dxn.onrender.com",
+]
+
+# Optional: Safely catch any other Render deployments dynamically
+import os
+RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
+if RENDER_EXTERNAL_URL:
+    CSRF_TRUSTED_ORIGINS.append(RENDER_EXTERNAL_URL)
